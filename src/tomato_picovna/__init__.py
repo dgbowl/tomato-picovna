@@ -65,14 +65,17 @@ class DriverInterface(ModelInterface):
 
     class DeviceManager(ModelInterface.DeviceManager):
         instrument: Any
-        measurement: Any
+        task_sweep_config: Any
         frequency_unit: str = "Hz"
         frequency_min: float
         frequency_max: float
+        ports: set = {"S11"}
 
         _bandwidth: float = None
         _power_level: float = None
         _sweep_params: list[Sweep] = list()
+        _sweep_nports: int = 1
+        _last_sweep: dict = None
 
         @property
         def _temperature(self):
@@ -86,6 +89,7 @@ class DriverInterface(ModelInterface):
             info = self.instrument.getInfo()
             self.frequency_min = info.minSweepFrequencyHz
             self.frequency_max = info.maxSweepFrequencyHz
+            self.task_sweep_config = None
 
         def attrs(self, **kwargs: dict) -> dict[str, Attr]:
             attrs_dict = {
@@ -93,6 +97,8 @@ class DriverInterface(ModelInterface):
                 "bandwidth": Attr(type=float, units="Hz", rw=True),
                 "power_level": Attr(type=float, units="dBm", rw=True),
                 "sweep_params": Attr(type=Any, rw=True, status=True),
+                "sweep_nports": Attr(type=int, rw=True, status=True),
+                "last_sweep": Attr(type=dict, rw=False, status=False),
             }
             return attrs_dict
 
@@ -106,6 +112,14 @@ class DriverInterface(ModelInterface):
                     raise ValueError(f"'bandwidth' of {val} is not permitted")
                 setattr(self, f"_{attr}", val)
             elif attr == "power_level":
+                setattr(self, f"_{attr}", val)
+            elif attr == "sweep_nports":
+                if val == 1:
+                    self.ports = {"S11"}
+                elif val == 2:
+                    self.ports = {"S11", "S12", "S21", "S22"}
+                else:
+                    raise ValueError(f"'sweep_nports' has to be 1 or 2, not {val}")
                 setattr(self, f"_{attr}", val)
             elif attr in {"sweep_params"}:
                 self._sweep_params = [Sweep(**item) for item in val]
@@ -122,12 +136,13 @@ class DriverInterface(ModelInterface):
 
         def prepare_task(self, task, **kwargs):
             super().prepare_task(task, **kwargs)
-            self._build_sweep()
+            self.task_sweep_config = self._build_sweep(
+                self._sweep_params, self._power_level, self._bandwidth
+            )
 
         def do_task(self, task: Task, **kwargs: dict):
-            uts = datetime.now().timestamp()
             t0 = perf_counter()
-            ret = self.instrument.performMeasurement(self.measurement)
+            data = self._run_sweep_config(self.task_sweep_config)
             dt = perf_counter() - t0
             if dt > task.sampling_interval:
                 logger.warning(
@@ -137,23 +152,17 @@ class DriverInterface(ModelInterface):
                 )
             else:
                 logger.debug("last sweep took %f s", dt)
-            self.data["uts"].append(uts)
-            self.data["temperature"].append(self._temperature)
-            freq = []
-            real = []
-            imag = []
-            for pt in ret:
-                freq.append(pt.measurementFrequencyHz)
-                real.append(pt.s11.real)
-                imag.append(pt.s11.imag)
-            self.data["freq"].append(freq)
-            self.data["Re(S11)"].append(real)
-            self.data["Im(S11)"].append(imag)
+            # Merge Scans Here
+            for k, v in data.items():
+                self.data[k].append(v)
 
-        def _build_sweep(self):
+        @staticmethod
+        def _build_sweep(
+            sweep_params: list[Sweep], power_level: float, bandwidth: float
+        ):
             logger.debug("building a sweep")
             mc = vna.MeasurementConfiguration()
-            for sweep in self._sweep_params:
+            for sweep in sweep_params:
                 if sweep.step is not None:
                     points = np.arange(sweep.start, sweep.stop + 1, sweep.step)
                 elif sweep.points is not None:
@@ -163,11 +172,32 @@ class DriverInterface(ModelInterface):
                 for p in points:
                     pt = vna.MeasurementPoint()
                     pt.frequencyHz = p
-                    pt.powerLeveldBm = self._power_level
-                    pt.bandwidthHz = self._bandwidth
+                    pt.powerLeveldBm = power_level
+                    pt.bandwidthHz = bandwidth
                     mc.addPoint(pt)
             logger.debug("sweep with %d total points built", len(mc.getPoints()))
-            self.measurement = mc
+            return mc
+
+        def _run_sweep_config(self, sweep_config):
+            data = {
+                "uts": datetime.now().timestamp(),
+                "temperature": self._temperature,
+            }
+            ret = self.instrument.performMeasurement(sweep_config)
+            freq = []
+            real = {k: [] for k in self.ports}
+            imag = {k: [] for k in self.ports}
+            for pt in ret:
+                freq.append(pt.measurementFrequencyHz)
+                for k in self.ports:
+                    real[k].append(getattr(pt, k.lower()).real)
+                    imag[k].append(getattr(pt, k.lower()).imag)
+            data["freq"] = freq
+            for k in self.ports:
+                data[f"Re({k})"] = real[k]
+                data[f"Im({k})"] = imag[k]
+            self._last_sweep = data
+            return data
 
     @in_devmap
     def task_data(self, key: tuple, **kwargs) -> Reply:
@@ -209,22 +239,24 @@ if __name__ == "__main__":
     task = Task(
         component_tag="bla",
         max_duration=10,
-        sampling_interval=5,
+        sampling_interval=1,
         technique_name="linear_sweep",
         technique_params={
-            "bandwidth": 100,
+            "bandwidth": 10_000,
             "power_level": -3,
             "sweep_params": [
                 # dict(start=2_000_000_000, stop=2_500_000_000, points=101),
                 dict(start=2_000_000_000, stop=2_500_000_000, step=5_000_000),
             ],
+            "sweep_nports": 2,
         },
     )
 
+    print(f"{interface.dev_get_attr(attr='last_sweep', **kwargs).data is None=}")
     interface.task_start(task=task, **kwargs)
     sleep(1)
     while interface.task_status(**kwargs).data["running"]:
-        print(f"{interface.task_status(**kwargs)=}")
+        print(f"{interface.dev_get_attr(attr='last_sweep', **kwargs).data is None=}")
         sleep(1)
     data = interface.task_data(**kwargs)
     print(f"{data=}")

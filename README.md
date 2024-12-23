@@ -14,6 +14,7 @@ This driver is a wrapper around the [`vna`](https://pypi.org/project/vna/) libra
 - `bandwidth`, the filter bandwidth for the sweep in Hz, `RW`, `float`
 - `power_level`, the power amplitude of the sweep in dBm, `RW`, `float`
 - `sweep_params`, a list of sweep parameters defining the frequecies of the `start`, `stop`, and `step` for each component of the sweep, in Hz, `RW`, `float`
+- `sweep_nports`, the number of ports to be swept, selecting a reflection (`= 1`) or transmission (`= 2`) experiment, `RW`, `int`
 
 ## Contributors
 
