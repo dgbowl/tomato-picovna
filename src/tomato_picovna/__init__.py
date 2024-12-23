@@ -93,7 +93,6 @@ class DriverInterface(ModelInterface):
                 "bandwidth": Attr(type=float, units="Hz", rw=True),
                 "power_level": Attr(type=float, units="dBm", rw=True),
                 "sweep_params": Attr(type=Any, rw=True, status=True),
-                "freq": Attr(type=Any, units="Hz"),
             }
             return attrs_dict
 
