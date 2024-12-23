@@ -32,11 +32,11 @@ class Sweep(BaseModel):
     step: Optional[float] = None
 
     @model_validator(mode="after")
-    def check_points_or_every(self):
+    def check_points_or_step(self):
         if self.points is None and self.step is None:
-            raise ValueError("Must supply either 'points' or 'every'.")
+            raise ValueError("Must supply either 'points' or 'step'.")
         if self.points is not None and self.step is not None:
-            raise ValueError("Must supply either 'points' or 'every', not both.")
+            raise ValueError("Must supply either 'points' or 'step', not both.")
         return self
 
 
