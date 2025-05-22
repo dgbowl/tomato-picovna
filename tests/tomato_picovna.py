@@ -1,4 +1,3 @@
-
 from tomato_picovna import DriverInterface, vna, Task
 import time
 import logging
