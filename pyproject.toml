@@ -15,7 +15,7 @@ requires-python = ">= 3.10, < 3.12"
 dependencies = [
     "vna >= 0.0.5",
     "psutil >= 5.9",
-    "tomato >= 1.0",
+    "tomato >= 2.1rc3",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
