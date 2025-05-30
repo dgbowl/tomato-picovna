@@ -188,7 +188,7 @@ class Device(ModelDevice):
     @staticmethod
     def _build_sweep(
         sweep_params: list[Sweep], power_level: float, bandwidth: float
-    ) -> "vna.MeasurementConfiguration":
+    ):
         logger.debug("building a sweep")
         mc = vna.MeasurementConfiguration()
         for sweep in sweep_params:
@@ -206,25 +206,3 @@ class Device(ModelDevice):
                 mc.addPoint(pt)
         logger.debug("sweep with %d total points built", len(mc.getPoints()))
         return mc
-
-    def _run_sweep_config(self, sweep_config):
-        data = {
-            "uts": datetime.now().timestamp(),
-            "temperature": self.temperature,
-        }
-        ret = self.instrument.performMeasurement(sweep_config)
-        freq = []
-        real = {k: [] for k in self.ports}
-        imag = {k: [] for k in self.ports}
-        for pt in ret:
-            freq.append(pt.measurementFrequencyHz)
-            for k in self.ports:
-                real[k].append(getattr(pt, k.lower()).real)
-                imag[k].append(getattr(pt, k.lower()).imag)
-        data["freq"] = freq
-        for k in self.ports:
-            data[f"Re({k})"] = real[k]
-            data[f"Im({k})"] = imag[k]
-        # self._last_sweep = data
-        print(f"{data=}")
-        return data
