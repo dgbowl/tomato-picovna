@@ -12,13 +12,14 @@ if __name__ == "__main__":
     }
     kwargs = dict(address="A0165", channel="10708")
     interface = DriverInterface(settings=settings)
-    interface.dev_register(**kwargs)
-    component = interface.devmap[("A0165", "10708")]
     print(f"{interface=}")
+    print(f"{interface.cmp_register(**kwargs)=}")
+    component = interface.devmap[("A0165", "10708")]
     print(f"{component=}")
     print(f"{vna=}")
     print(f"{component.calibration=}")
 
+if False:
     sweep_params = [
         # dict(start=2_000_000_000, stop=2_500_000_000, points=101),
         dict(start=2_700_000_000, stop=6_700_000_000, points=10001),
