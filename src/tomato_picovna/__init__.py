@@ -1,7 +1,7 @@
 from typing import Any, Optional
 from types import ModuleType
 from tomato.driverinterface_2_1 import ModelInterface, ModelDevice, Attr
-from tomato.driverinterface_2_1.decorators import coerce_val
+from tomato.driverinterface_2_1.decorators import coerce_val, log_errors, to_reply
 from tomato.driverinterface_2_1.types import Val
 from pathlib import Path
 import psutil
@@ -71,6 +71,25 @@ class DriverInterface(ModelInterface):
     def DeviceFactory(self, key, **kwargs):
         return Device(self, key, **kwargs)
 
+    @log_errors
+    @to_reply
+    def cmp_register(self, address: str, channel: str, **kwargs: dict) -> tuple[bool, str, set]:
+        key = (address, channel)
+        if key in self.devmap:
+            logger.warning("attempting to re-register device '%s'", key)
+            return (True, f"device {key!r} registered", capabs)
+        try:
+            self.devmap[key] = self.DeviceFactory(key, **kwargs)
+            capabs = self.devmap[key].capabilities()
+            self.retries[key] = 0
+            return (True, f"device {key!r} registered", capabs)
+        except RuntimeError as e:
+            self.retries[key] += 1
+            return (False, f"failed to register {key!r}: {str(e)}", None)
+        except Exception as e:
+            self.retries[key] += 1
+            return (False, f"failed to register {key!r}: {str(e)}", None)
+
 
 class Device(ModelDevice):
     instrument: Any
@@ -90,9 +109,10 @@ class Device(ModelDevice):
     def temperature(self) -> pint.Quantity:
         return pint.Quantity(self.instrument.getTemperature(), "celsius")
 
-    def __init__(self, driver: ModelInterface, key: tuple[str, int], **kwargs: dict):
+    def __init__(self, driver: ModelInterface, key: tuple[str, str], **kwargs: dict):
         # Will raise vna.vna.DeviceNotFoundException if channel is incorrect
-        self.instrument = vna.Device.open(f"{key[1]}")
+        address, channel = key
+        self.instrument = vna.Device.open(channel)
         info = self.instrument.getInfo()
         self.frequency_min = pint.Quantity(info.minSweepFrequencyHz, "Hz")
         self.frequency_max = pint.Quantity(info.maxSweepFrequencyHz, "Hz")
@@ -102,14 +122,11 @@ class Device(ModelDevice):
         self.sweep_params = list()
         self.sweep_nports = 1
         if "calibration" in driver.settings:
-            self.instrument.applyCalibrationFromFile(driver.settings["calibration"])
             self.calibration = driver.settings["calibration"]
         else:
-            self.instrument.loadFactoryCalibration()
-            self.calibration = "FACTORY"
-
-        print(f"{driver.settings=}")
+            self.calibration = None
         super().__init__(driver, key, **kwargs)
+        
 
     def attrs(self, **kwargs: dict) -> dict[str, Attr]:
         attrs_dict = {
@@ -157,11 +174,18 @@ class Device(ModelDevice):
 
     def prepare_task(self, task, **kwargs):
         super().prepare_task(task, **kwargs)
+        logger.critical("loading calibration")
+        if self.calibration is not None:
+            self.instrument.applyCalibrationFromFile(self.calibration)
+        else:
+            self.instrument.loadFactoryCalibration()
+        logger.critical("building sweep")
         self.task_sweep_config = self._build_sweep(
             self.sweep_params, self.power_level.to("dBm").m, self.bandwidth.to("Hz").m
         )
 
     def do_measure(self, **kwargs: dict):
+        logger.critical("performing measurement")
         coords = {"uts": (["uts"], [datetime.now().timestamp()])}
         temperature = self.temperature
         data_vars = {
