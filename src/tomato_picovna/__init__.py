@@ -75,21 +75,10 @@ class DriverInterface(ModelInterface):
     @to_reply
     def cmp_register(self, address: str, channel: str, **kwargs: dict) -> tuple[bool, str, set]:
         key = (address, channel)
-        if key in self.devmap:
-            logger.warning("attempting to re-register device '%s'", key)
-            return (True, f"device {key!r} registered", capabs)
-        try:
-            self.devmap[key] = self.DeviceFactory(key, **kwargs)
-            capabs = self.devmap[key].capabilities()
-            self.retries[key] = 0
-            return (True, f"device {key!r} registered", capabs)
-        except RuntimeError as e:
-            self.retries[key] += 1
-            return (False, f"failed to register {key!r}: {str(e)}", None)
-        except Exception as e:
-            self.retries[key] += 1
-            return (False, f"failed to register {key!r}: {str(e)}", None)
-
+        self.devmap[key] = self.DeviceFactory(key, **kwargs)
+        capabs = self.devmap[key].capabilities()
+        self.retries[key] = 0
+        return (True, f"device {key!r} registered", capabs)
 
 class Device(ModelDevice):
     instrument: Any
@@ -126,7 +115,7 @@ class Device(ModelDevice):
         else:
             self.calibration = None
         super().__init__(driver, key, **kwargs)
-        
+
 
     def attrs(self, **kwargs: dict) -> dict[str, Attr]:
         attrs_dict = {
