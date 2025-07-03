@@ -185,7 +185,7 @@ class Device(ModelDevice):
         #ret = self.instrument.performMeasurement(self.task_sweep_config)
         am = self.instrument.startMeasurement(self.task_sweep_config)
         bw = self.bandwidth.to("Hz").m
-        npoints = self.task_sweep_config.numPoints
+        npoints = self.task_sweep_config.numPoints()
         time.sleep(estimate_sweep_time(bw, npoints))
         ret = am.getAllPoints()
 
