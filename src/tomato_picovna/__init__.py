@@ -165,7 +165,7 @@ class Device(ModelDevice):
     def prepare_task(self, task, **kwargs):
         super().prepare_task(task, **kwargs)
         logger.critical("loading calibration")
-        if self.calibration is not None and False:
+        if self.calibration is not None:
             self.instrument.applyCalibrationFromFile(self.calibration)
         else:
             self.instrument.loadFactoryCalibration()
@@ -183,10 +183,11 @@ class Device(ModelDevice):
         }
         #ret = self.instrument.performMeasurement(self.task_sweep_config)
         am = self.instrument.startMeasurement(self.task_sweep_config)
-        while True:
-            if am.isFinished():
-                break
-            time.sleep(0.1)
+        #print(f"{dir(am)=}")
+        #while True:
+        #    if am.isFinished():
+        #        break
+        #    time.sleep(0.1)
         ret = am.getAllPoints()
 
         freq = []
