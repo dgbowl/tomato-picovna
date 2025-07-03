@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import xarray as xr
 import pint
+import time
 
 pint.set_application_registry(pint.UnitRegistry(autoconvert_offset_to_baseunit=True))
 vna: ModuleType = None
@@ -180,7 +181,14 @@ class Device(ModelDevice):
         data_vars = {
             "temperature": (["uts"], [temperature.m], {"units": str(temperature.u)}),
         }
-        ret = self.instrument.performMeasurement(self.task_sweep_config)
+        #ret = self.instrument.performMeasurement(self.task_sweep_config)
+        am = self.instrument.startMeasurement(self.task_sweep_config)
+        while True:
+            if am.isFinished():
+                break
+            time.sleep(0.1)
+        ret = am.getAllPoints()
+
         freq = []
         real = {k: [] for k in self.ports}
         imag = {k: [] for k in self.ports}
