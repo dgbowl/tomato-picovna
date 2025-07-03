@@ -181,13 +181,10 @@ class Device(ModelDevice):
         data_vars = {
             "temperature": (["uts"], [temperature.m], {"units": str(temperature.u)}),
         }
+
         #ret = self.instrument.performMeasurement(self.task_sweep_config)
         am = self.instrument.startMeasurement(self.task_sweep_config)
-        #print(f"{dir(am)=}")
-        #while True:
-        #    if am.isFinished():
-        #        break
-        #    time.sleep(0.1)
+        time.sleep(estimate_sweep_time(bw=self.bandwidth, npoints=10001))
         ret = am.getAllPoints()
 
         freq = []
