@@ -174,7 +174,7 @@ class Device(ModelDevice):
         )
 
     def do_measure(self, **kwargs: dict):
-        logger.critical("performing measurement")
+        logger.debug("performing measurement")
         coords = {"uts": (["uts"], [datetime.now().timestamp()])}
         temperature = self.temperature
         data_vars = {
@@ -197,6 +197,7 @@ class Device(ModelDevice):
             data_vars=data_vars,
             coords=coords,
         )
+        logger.debug("measurement done")
 
     @staticmethod
     def _build_sweep(
