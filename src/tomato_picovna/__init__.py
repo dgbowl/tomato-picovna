@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 import xarray as xr
 import pint
+import time
 
 pint.set_application_registry(pint.UnitRegistry(autoconvert_offset_to_baseunit=True))
 vna: ModuleType = None
@@ -48,11 +49,11 @@ class DriverInterface(ModelInterface):
 
     def __init__(self, settings=None):
         super().__init__(settings)
-        if "sdkpath" not in self.settings:
+        if "dllpath" not in self.settings:
             raise RuntimeError(
-                "Cannot instantiate tomato-picovna without supplying a sdkpath"
+                "Cannot instantiate tomato-picovna without supplying a dllpath"
             )
-        path = Path(self.settings["sdkpath"])
+        path = Path(self.settings["dllpath"])
         if psutil.WINDOWS:
             path = path / "windows"
         elif psutil.LINUX:
@@ -73,22 +74,14 @@ class DriverInterface(ModelInterface):
 
     @log_errors
     @to_reply
-    def cmp_register(self, address: str, channel: str, **kwargs: dict) -> tuple[bool, str, set]:
+    def cmp_register(
+        self, address: str, channel: str, **kwargs: dict
+    ) -> tuple[bool, str, set]:
         key = (address, channel)
-        if key in self.devmap:
-            logger.warning("attempting to re-register device '%s'", key)
-            return (True, f"device {key!r} registered", capabs)
-        try:
-            self.devmap[key] = self.DeviceFactory(key, **kwargs)
-            capabs = self.devmap[key].capabilities()
-            self.retries[key] = 0
-            return (True, f"device {key!r} registered", capabs)
-        except RuntimeError as e:
-            self.retries[key] += 1
-            return (False, f"failed to register {key!r}: {str(e)}", None)
-        except Exception as e:
-            self.retries[key] += 1
-            return (False, f"failed to register {key!r}: {str(e)}", None)
+        self.devmap[key] = self.DeviceFactory(key, **kwargs)
+        capabs = self.devmap[key].capabilities()
+        self.retries[key] = 0
+        return (True, f"device {key!r} registered", capabs)
 
 
 class Device(ModelDevice):
@@ -126,11 +119,10 @@ class Device(ModelDevice):
         else:
             self.calibration = None
         super().__init__(driver, key, **kwargs)
-        
 
     def attrs(self, **kwargs: dict) -> dict[str, Attr]:
         attrs_dict = {
-            "temperature": Attr(type=pint.Quantity, units="celsius", status=True),
+            "temperature": Attr(type=pint.Quantity, units="celsius", status=False),
             "bandwidth": Attr(type=pint.Quantity, units="Hz", rw=True),
             "power_level": Attr(type=pint.Quantity, units="dBm", rw=True),
             "sweep_params": Attr(type=list, rw=True, status=True),
@@ -185,13 +177,20 @@ class Device(ModelDevice):
         )
 
     def do_measure(self, **kwargs: dict):
-        logger.critical("performing measurement")
+        logger.debug("performing measurement")
         coords = {"uts": (["uts"], [datetime.now().timestamp()])}
         temperature = self.temperature
         data_vars = {
             "temperature": (["uts"], [temperature.m], {"units": str(temperature.u)}),
         }
-        ret = self.instrument.performMeasurement(self.task_sweep_config)
+
+        # ret = self.instrument.performMeasurement(self.task_sweep_config)
+        am = self.instrument.startMeasurement(self.task_sweep_config)
+        bw = self.bandwidth.to("Hz").m
+        npoints = self.task_sweep_config.numPoints()
+        time.sleep(estimate_sweep_time(bw, npoints))
+        ret = am.getAllPoints()
+
         freq = []
         real = {k: [] for k in self.ports}
         imag = {k: [] for k in self.ports}
@@ -208,11 +207,10 @@ class Device(ModelDevice):
             data_vars=data_vars,
             coords=coords,
         )
+        logger.debug("measurement done")
 
     @staticmethod
-    def _build_sweep(
-        sweep_params: list[Sweep], power_level: float, bandwidth: float
-    ):
+    def _build_sweep(sweep_params: list[Sweep], power_level: float, bandwidth: float):
         logger.debug("building a sweep")
         mc = vna.MeasurementConfiguration()
         for sweep in sweep_params:

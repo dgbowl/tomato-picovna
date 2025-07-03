@@ -4,6 +4,11 @@
 
 This driver is a wrapper around the [`vna`](https://pypi.org/project/vna/) library, which is part of the [PicoVNA 5 SDK](https://github.com/picotech/picovna5-examples). As such, the driver needs to be supplied with a location of the SDK using the *settings file* of `tomato`.
 
+## Installation
+1. Download and install the PicoVNA 5 SDK. Tested with version `5.2.5` of the SDK.
+2. Pass the location of the `python` folder within the SDK (e.g. `picovna5_sdk_v_5_2_5\python`) as `settings['dllpath']` to the driver.
+3. Pass the location of a valid PicoVNA 5 calibration file (ends with `.calx`) as `settings['calibration']`.
+
 ## Supported functions
 
 ### Capabilities

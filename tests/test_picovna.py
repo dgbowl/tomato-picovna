@@ -7,19 +7,18 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
     print(f"{vna=}")
     settings = {
-        "sdkpath": r"C:\Users\kraus\AppData\Local\dgbowl\tomato\picovna5_sdk_v_5_2_5\python",
-        "calibration": r"C:\Users\kraus\AppData\Local\dgbowl\tomato\picovna5_sdk_v_5_2_5\2025-05-22_2.5-7.5GHz_10kHz_-3dBm_picovna5.calx",
+        "dllpath": r"C:\Users\Kraus\Documents\Instruments\COCoS\picovna5_sdk_v_5_2_5\python",
+        "calibration": r"C:\Users\Kraus\Documents\Instruments\COCoS\calibrations\2025-05-22_2.5-7.5GHz_10kHz_-3dBm.calx",
     }
-    kwargs = dict(address="A0165", channel="10708")
+    kwargs = dict(address="A0171", channel="11328")
     interface = DriverInterface(settings=settings)
     print(f"{interface=}")
     print(f"{interface.cmp_register(**kwargs)=}")
-    component = interface.devmap[("A0165", "10708")]
+    component = interface.devmap[("A0171", "11328")]
     print(f"{component=}")
     print(f"{vna=}")
     print(f"{component.calibration=}")
 
-if False:
     sweep_params = [
         # dict(start=2_000_000_000, stop=2_500_000_000, points=101),
         dict(start=2_700_000_000, stop=6_700_000_000, points=10001),
@@ -27,7 +26,7 @@ if False:
 
     task = Task(
         component_role="bla",
-        max_duration=300,
+        max_duration=20,
         sampling_interval=10,
         technique_name="linear_sweep",
         task_params={
@@ -46,7 +45,8 @@ if False:
             break
         time.sleep(30)
     ret = interface.task_data(**kwargs)
-    ret.data.to_netcdf("QLCZES_2.nc", engine="h5netcdf")
+    print(f"{ret=}")
+    # ret.data.to_netcdf("QLCZES_2.nc", engine="h5netcdf")
 
 if False:
     task = Task(
