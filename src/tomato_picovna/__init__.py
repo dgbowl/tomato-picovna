@@ -119,7 +119,7 @@ class Device(ModelDevice):
 
     def attrs(self, **kwargs: dict) -> dict[str, Attr]:
         attrs_dict = {
-            "temperature": Attr(type=pint.Quantity, units="celsius", status=True),
+            "temperature": Attr(type=pint.Quantity, units="celsius", status=False),
             "bandwidth": Attr(type=pint.Quantity, units="Hz", rw=True),
             "power_level": Attr(type=pint.Quantity, units="dBm", rw=True),
             "sweep_params": Attr(type=list, rw=True, status=True),
