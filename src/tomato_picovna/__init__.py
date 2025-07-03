@@ -164,7 +164,7 @@ class Device(ModelDevice):
     def prepare_task(self, task, **kwargs):
         super().prepare_task(task, **kwargs)
         logger.critical("loading calibration")
-        if self.calibration is not None:
+        if self.calibration is not None and False:
             self.instrument.applyCalibrationFromFile(self.calibration)
         else:
             self.instrument.loadFactoryCalibration()
