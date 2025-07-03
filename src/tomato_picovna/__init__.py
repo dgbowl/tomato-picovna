@@ -49,11 +49,11 @@ class DriverInterface(ModelInterface):
 
     def __init__(self, settings=None):
         super().__init__(settings)
-        if "sdkpath" not in self.settings:
+        if "dllpath" not in self.settings:
             raise RuntimeError(
-                "Cannot instantiate tomato-picovna without supplying a sdkpath"
+                "Cannot instantiate tomato-picovna without supplying a dllpath"
             )
-        path = Path(self.settings["sdkpath"])
+        path = Path(self.settings["dllpath"])
         if psutil.WINDOWS:
             path = path / "windows"
         elif psutil.LINUX:
@@ -74,12 +74,15 @@ class DriverInterface(ModelInterface):
 
     @log_errors
     @to_reply
-    def cmp_register(self, address: str, channel: str, **kwargs: dict) -> tuple[bool, str, set]:
+    def cmp_register(
+        self, address: str, channel: str, **kwargs: dict
+    ) -> tuple[bool, str, set]:
         key = (address, channel)
         self.devmap[key] = self.DeviceFactory(key, **kwargs)
         capabs = self.devmap[key].capabilities()
         self.retries[key] = 0
         return (True, f"device {key!r} registered", capabs)
+
 
 class Device(ModelDevice):
     instrument: Any
@@ -116,7 +119,6 @@ class Device(ModelDevice):
         else:
             self.calibration = None
         super().__init__(driver, key, **kwargs)
-
 
     def attrs(self, **kwargs: dict) -> dict[str, Attr]:
         attrs_dict = {
@@ -182,7 +184,7 @@ class Device(ModelDevice):
             "temperature": (["uts"], [temperature.m], {"units": str(temperature.u)}),
         }
 
-        #ret = self.instrument.performMeasurement(self.task_sweep_config)
+        # ret = self.instrument.performMeasurement(self.task_sweep_config)
         am = self.instrument.startMeasurement(self.task_sweep_config)
         bw = self.bandwidth.to("Hz").m
         npoints = self.task_sweep_config.numPoints()
@@ -208,9 +210,7 @@ class Device(ModelDevice):
         logger.debug("measurement done")
 
     @staticmethod
-    def _build_sweep(
-        sweep_params: list[Sweep], power_level: float, bandwidth: float
-    ):
+    def _build_sweep(sweep_params: list[Sweep], power_level: float, bandwidth: float):
         logger.debug("building a sweep")
         mc = vna.MeasurementConfiguration()
         for sweep in sweep_params:
