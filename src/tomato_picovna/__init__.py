@@ -125,7 +125,7 @@ class Device(ModelDevice):
             "temperature": Attr(type=pint.Quantity, units="celsius", status=False),
             "bandwidth": Attr(type=pint.Quantity, units="Hz", rw=True),
             "power_level": Attr(type=pint.Quantity, units="dBm", rw=True),
-            "sweep_params": Attr(type=list, rw=True, status=True),
+            "sweep_params": Attr(type=list[Sweep], rw=True, status=True),
             "sweep_nports": Attr(type=int, rw=True, status=True),
         }
         return attrs_dict
