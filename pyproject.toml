@@ -14,7 +14,7 @@ readme = "README.md"
 requires-python = ">= 3.11"
 dependencies = [
     "psutil >= 5.9",
-    "tomato >= 2.1rc3",
+    "tomato >= 3.0rc5.post1",
     "pydantic-pint ~= 0.5.0",
 ]
 classifiers = [
