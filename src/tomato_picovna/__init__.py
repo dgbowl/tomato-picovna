@@ -3,8 +3,6 @@ import logging
 import sys
 import time
 from datetime import UTC, datetime
-from enum import Enum
-from pathlib import Path
 from types import ModuleType
 from typing import Annotated, Any, Literal
 
@@ -14,13 +12,21 @@ import xarray as xr
 from pint import Quantity
 from pydantic import BaseModel, model_validator
 from pydantic_pint import PydanticPintQuantity
-from tomato.driverinterface_2_1 import Attr, ModelDevice, ModelInterface
-from tomato.driverinterface_2_1.decorators import coerce_val, log_errors, to_reply
-from tomato.driverinterface_2_1.types import Val
+from tomato.driverinterface_3_0 import (
+    Attr,
+    ModelComponent,
+    ModelInterface,
+    Settings,
+    Status,
+)
+from tomato.driverinterface_3_0.decorators import coerce_val
+from tomato.driverinterface_3_0.types import Val
 
 pint.set_application_registry(pint.UnitRegistry(autoconvert_offset_to_baseunit=True))
-
 ureg = pint.get_application_registry()
+APQHZ = Annotated[
+    Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg, ser_mode="str")
+]
 
 BANDWIDTH_SET = {
     10,
@@ -55,12 +61,10 @@ def estimate_sweep_time(bw: int, npoints: int):
 
 
 class Sweep(BaseModel):
-    start: Annotated[Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg)]
-    stop: Annotated[Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg)]
+    start: APQHZ
+    stop: APQHZ
     points: Literal[*POINTS_SET] | None = None  # ty: ignore
-    step: (
-        Annotated[Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg)] | None
-    ) = None
+    step: APQHZ | None = None
 
     @model_validator(mode="after")
     def check_points_or_step(self):
@@ -71,49 +75,33 @@ class Sweep(BaseModel):
         return self
 
 
+class Settings(Settings):
+    idle_measurement_interval: int | None = None
+    lpp_timeout: int = 5
+    dllpath: str
+    calibration: str | None = None
+
+
 class DriverInterface(ModelInterface):
     vna: ModuleType
 
-    idle_measurement_interval = None
-
     def __init__(self, settings=None):
         super().__init__(settings)
-        if "dllpath" not in self.settings:
-            raise RuntimeError(
-                "Cannot instantiate tomato-picovna without supplying a dllpath"
-            )
-        path = Path(self.settings["dllpath"])
-
-        sys.path.append(str(path))
-        logger.debug(f"{path=}")
-
+        logger.debug("setting dllpath to '%s'", self.settings.dllpath)  # ty: ignore
+        sys.path.append(self.settings.dllpath)  # ty: ignore
         self.vna = importlib.import_module("vna")
 
-    def DeviceFactory(self, key, **kwargs):
-        return Device(self, key, **kwargs)
 
-    @log_errors
-    @to_reply
-    def cmp_register(
-        self, address: str, channel: str, **kwargs: dict
-    ) -> tuple[bool, str, set]:
-        key = (address, channel)
-        self.devmap[key] = self.DeviceFactory(key, **kwargs)
-        capabs = self.devmap[key].capabilities()
-        self.retries[key] = 0
-        return (True, f"device {key!r} registered", capabs)
-
-
-class Device(ModelDevice):
+class Component(ModelComponent):
     instrument: Any
     task_sweep_config: Any
     frequency_unit: str = "Hz"
-    frequency_min: pint.Quantity
-    frequency_max: pint.Quantity
+    frequency_min: Quantity
+    frequency_max: Quantity
     ports: set
 
-    bandwidth: pint.Quantity
-    power_level: pint.Quantity
+    bandwidth: Quantity
+    power_level: Quantity
     sweep_params: Sweep
     sweep_nports: int
     calibration: str | None
@@ -123,10 +111,12 @@ class Device(ModelDevice):
         temp = self.instrument.getTemperature()
         return Quantity(temp, "celsius")
 
-    def __init__(self, driver: DriverInterface, key: tuple[str, str], **kwargs: dict):
+    def __init__(
+        self, driver: DriverInterface, name: str, channel: str, **kwargs: dict
+    ):
+        super().__init__(driver, name)
         assert driver.vna is not None
         # Will raise vna.vna.DeviceNotFoundException if channel is incorrect
-        _address, channel = key
         self.instrument = driver.vna.Device.open(channel)
         info = self.instrument.getInfo()
         self.frequency_min = Quantity(info.minSweepFrequencyHz, "Hz")
@@ -139,21 +129,25 @@ class Device(ModelDevice):
             stop=self.frequency_max,
             points=min(POINTS_SET),
         )
+        self.calibration = None
         self.sweep_nports = 1
         self.ports = {"S11"}
-        if "calibration" in driver.settings:
-            self.calibration = driver.settings["calibration"]
-        else:
-            self.calibration = None
-        super().__init__(driver, key, **kwargs)
+        logger.debug("building sweep")
+        self.task_sweep_config = self._build_sweep(
+            self.sweep_params,
+            self.power_level.to("dBm").m,
+            self.bandwidth.to("Hz").m,
+            driver.vna,
+        )
 
     def attrs(self, **kwargs: dict) -> dict[str, Attr]:
         attrs_dict = {
-            "temperature": Attr(type=pint.Quantity, units="celsius", status=False),
-            "bandwidth": Attr(type=pint.Quantity, units="Hz", rw=True),
-            "power_level": Attr(type=pint.Quantity, units="dBm", rw=True),
+            "temperature": Attr(type=Quantity, units="celsius", status=False),
+            "bandwidth": Attr(type=Quantity, units="Hz", rw=True),
+            "power_level": Attr(type=Quantity, units="dBm", rw=True),
             "sweep_params": Attr(type=Sweep, rw=True, status=True),
             "sweep_nports": Attr(type=int, rw=True, status=True),
+            "calibration": Attr(type=str, rw=True, status=False),
         }
         return attrs_dict
 
@@ -181,6 +175,8 @@ class Device(ModelDevice):
                 self.bandwidth.to("Hz").m,
                 self.driver.vna,  # ty: ignore
             )
+        elif attr == "calibration":
+            self.calibration = val
         return val
 
     def get_attr(self, attr: str, **kwargs: dict) -> Val:
@@ -194,12 +190,16 @@ class Device(ModelDevice):
 
     def prepare_task(self, task, **kwargs):
         super().prepare_task(task, **kwargs)
-        logger.critical("loading calibration")
         if self.calibration is not None:
+            logger.debug("loading calibration '%s'", self.calibration)
             self.instrument.applyCalibrationFromFile(self.calibration)
+        elif self.driver.settings.calibration is not None:  # ty: ignore
+            logger.debug("loading calibration '%s'", self.driver.settings.calibration)  # ty: ignore
+            self.instrument.applyCalibrationFromFile(self.driver.settings.calibration)  # ty: ignore
         else:
+            logger.debug("loading factory calibration")
             self.instrument.loadFactoryCalibration()
-        logger.critical("building sweep")
+        logger.debug("building sweep")
         self.task_sweep_config = self._build_sweep(
             self.sweep_params,
             self.power_level.to("dBm").m,
@@ -210,10 +210,14 @@ class Device(ModelDevice):
     def do_measure(self, **kwargs: dict):
         logger.debug("performing measurement")
         coords = {"uts": (["uts"], [datetime.now(UTC).timestamp()])}
-        temperature = self.temperature
-        data_vars = {
-            "temperature": (["uts"], [temperature.m], {"units": str(temperature.u)}),
-        }
+        try:
+            temp = self.temperature
+            data_vars = {
+                "temperature": (["uts"], [temp.m], {"units": str(temp.u)}),
+            }
+        except self.driver.vna.OperationNotSupportedException:  # ty: ignore
+            logger.debug("running with a demo instrument, no temperature available")
+            data_vars = {}
 
         # ret = self.instrument.performMeasurement(self.task_sweep_config)
         am = self.instrument.startMeasurement(self.task_sweep_config)
@@ -232,13 +236,36 @@ class Device(ModelDevice):
                 imag[k].append(getattr(pt, k.lower()).imag)
         coords["freq"] = (["freq"], freq, {"units": self.frequency_unit})
         for k in self.ports:
-            data_vars[f"Re({k})"] = (["uts", "freq"], [real[k]])
-            data_vars[f"Im({k})"] = (["uts", "freq"], [imag[k]])
+            data_vars[f"Re({k})"] = (["uts", "freq"], [real[k]])  # ty: ignore
+            data_vars[f"Im({k})"] = (["uts", "freq"], [imag[k]])  # ty: ignore
         self.last_data = xr.Dataset(
             data_vars=data_vars,
             coords=coords,
         )
         logger.debug("measurement done")
+
+    def quit(self, **kwargs):
+        # According to PicoVNA 5 Programming guide, to
+        if self.instrument is not None:
+            logger.debug("deleting device object")
+            instrument = self.instrument
+            self.instrument = None
+            del instrument
+
+    def status(self, **kwargs):
+        attrs = {}
+        for attr, props in self.attrs().items():
+            if props.status:
+                attrs[attr] = self.get_attr(attr)
+
+        ret = Status(
+            connected=True,
+            state=self.state,  # ty: ignore[invalid-argument-type]
+            can_submit=not self.task_list.full(),
+            attrs=attrs,
+            task=self.running_task,
+        )
+        return ret
 
     @staticmethod
     def _build_sweep(
@@ -250,7 +277,7 @@ class Device(ModelDevice):
             points = np.arange(
                 sweep.start.to("Hz").m,
                 sweep.stop.to("Hz").m + 1,
-                sweep.step.to("Hz").m,
+                step=sweep.step.to("Hz").m,
             )
         elif sweep.points is not None:
             points = np.linspace(
