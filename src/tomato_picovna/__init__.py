@@ -1,25 +1,50 @@
-from typing import Any, Optional
+import importlib
+import logging
+import sys
+import time
+from datetime import UTC, datetime
+from enum import Enum
+from pathlib import Path
 from types import ModuleType
-from tomato.driverinterface_2_1 import ModelInterface, ModelDevice, Attr
+from typing import Annotated, Any, Literal
+
+import numpy as np
+import pint
+import xarray as xr
+from pint import Quantity
+from pydantic import BaseModel, model_validator
+from pydantic_pint import PydanticPintQuantity
+from tomato.driverinterface_2_1 import Attr, ModelDevice, ModelInterface
 from tomato.driverinterface_2_1.decorators import coerce_val, log_errors, to_reply
 from tomato.driverinterface_2_1.types import Val
-from pathlib import Path
-import psutil
-import sys
-import importlib
-from pydantic import BaseModel, model_validator
-import numpy as np
-import logging
-from datetime import datetime
-import xarray as xr
-import pint
-import time
 
 pint.set_application_registry(pint.UnitRegistry(autoconvert_offset_to_baseunit=True))
-vna: ModuleType = None
 
-BANDWIDTH_SET = {10, 50, 100, 500, 1_000, 5_000, 10_000, 35_000, 70_000, 140_000}
-POINTS_SET = {11, 51, 101, 201, 401, 801, 1001, 2001, 3001, 4001, 5001, 6001, 7001}
+ureg = pint.get_application_registry()
+
+BANDWIDTH_SET = {
+    10,
+    50,
+    100,
+    500,
+    1_000,
+    5_000,
+    10_000,
+    15_000,
+    35_000,
+    70_000,
+    140_000,
+}
+POINTS_SET = {
+    51,
+    101,
+    201,
+    501,
+    1_001,
+    2_001,
+    5_001,
+    10_001,
+}
 logger = logging.getLogger(__name__)
 
 
@@ -30,10 +55,12 @@ def estimate_sweep_time(bw: int, npoints: int):
 
 
 class Sweep(BaseModel):
-    start: float
-    stop: float
-    points: Optional[int] = None
-    step: Optional[float] = None
+    start: Annotated[Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg)]
+    stop: Annotated[Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg)]
+    points: Literal[*POINTS_SET] | None = None  # ty: ignore
+    step: (
+        Annotated[Quantity, PydanticPintQuantity("Hz", strict=False, ureg=ureg)] | None
+    ) = None
 
     @model_validator(mode="after")
     def check_points_or_step(self):
@@ -45,6 +72,8 @@ class Sweep(BaseModel):
 
 
 class DriverInterface(ModelInterface):
+    vna: ModuleType
+
     idle_measurement_interval = None
 
     def __init__(self, settings=None):
@@ -54,20 +83,11 @@ class DriverInterface(ModelInterface):
                 "Cannot instantiate tomato-picovna without supplying a dllpath"
             )
         path = Path(self.settings["dllpath"])
-        if psutil.WINDOWS:
-            path = path / "windows"
-        elif psutil.LINUX:
-            path = path / "linux_x64"
-        else:
-            raise RuntimeError("Unsupported OS")
-        if sys.version_info[1] == 10:
-            path = path / "python310"
-        elif sys.version_info[1] == 11:
-            path = path / "python311"
-        sys.path.append(str(path))
 
-        global vna
-        vna = importlib.import_module("vna.vna")
+        sys.path.append(str(path))
+        logger.debug(f"{path=}")
+
+        self.vna = importlib.import_module("vna")
 
     def DeviceFactory(self, key, **kwargs):
         return Device(self, key, **kwargs)
@@ -90,30 +110,37 @@ class Device(ModelDevice):
     frequency_unit: str = "Hz"
     frequency_min: pint.Quantity
     frequency_max: pint.Quantity
-    ports: set = {"S11"}
+    ports: set
 
     bandwidth: pint.Quantity
     power_level: pint.Quantity
-    sweep_params: list[Sweep]
+    sweep_params: Sweep
     sweep_nports: int
-    calibration: str
+    calibration: str | None
 
     @property
-    def temperature(self) -> pint.Quantity:
-        return pint.Quantity(self.instrument.getTemperature(), "celsius")
+    def temperature(self) -> Quantity:
+        temp = self.instrument.getTemperature()
+        return Quantity(temp, "celsius")
 
-    def __init__(self, driver: ModelInterface, key: tuple[str, str], **kwargs: dict):
+    def __init__(self, driver: DriverInterface, key: tuple[str, str], **kwargs: dict):
+        assert driver.vna is not None
         # Will raise vna.vna.DeviceNotFoundException if channel is incorrect
-        address, channel = key
-        self.instrument = vna.Device.open(channel)
+        _address, channel = key
+        self.instrument = driver.vna.Device.open(channel)
         info = self.instrument.getInfo()
-        self.frequency_min = pint.Quantity(info.minSweepFrequencyHz, "Hz")
-        self.frequency_max = pint.Quantity(info.maxSweepFrequencyHz, "Hz")
+        self.frequency_min = Quantity(info.minSweepFrequencyHz, "Hz")
+        self.frequency_max = Quantity(info.maxSweepFrequencyHz, "Hz")
         self.task_sweep_config = None
-        self.bandwidth = pint.Quantity("140 kHz")
-        self.power_level = pint.Quantity("-3 dBm")
-        self.sweep_params = list()
+        self.bandwidth = Quantity(max(BANDWIDTH_SET), "Hz")
+        self.power_level = Quantity("-3 dBm")
+        self.sweep_params = Sweep(
+            start=self.frequency_min,
+            stop=self.frequency_max,
+            points=min(POINTS_SET),
+        )
         self.sweep_nports = 1
+        self.ports = {"S11"}
         if "calibration" in driver.settings:
             self.calibration = driver.settings["calibration"]
         else:
@@ -125,7 +152,7 @@ class Device(ModelDevice):
             "temperature": Attr(type=pint.Quantity, units="celsius", status=False),
             "bandwidth": Attr(type=pint.Quantity, units="Hz", rw=True),
             "power_level": Attr(type=pint.Quantity, units="dBm", rw=True),
-            "sweep_params": Attr(type=list[Sweep], rw=True, status=True),
+            "sweep_params": Attr(type=Sweep, rw=True, status=True),
             "sweep_nports": Attr(type=int, rw=True, status=True),
         }
         return attrs_dict
@@ -147,11 +174,12 @@ class Device(ModelDevice):
         elif attr == "power_level":
             self.power_level = val
         elif attr == "sweep_params":
-            self.sweep_params = [Sweep(**item) for item in val]
+            self.sweep_params = val
             self.task_sweep_config = self._build_sweep(
                 self.sweep_params,
                 self.power_level.to("dBm").m,
                 self.bandwidth.to("Hz").m,
+                self.driver.vna,  # ty: ignore
             )
         return val
 
@@ -173,12 +201,15 @@ class Device(ModelDevice):
             self.instrument.loadFactoryCalibration()
         logger.critical("building sweep")
         self.task_sweep_config = self._build_sweep(
-            self.sweep_params, self.power_level.to("dBm").m, self.bandwidth.to("Hz").m
+            self.sweep_params,
+            self.power_level.to("dBm").m,
+            self.bandwidth.to("Hz").m,
+            self.driver.vna,  # ty: ignore
         )
 
     def do_measure(self, **kwargs: dict):
         logger.debug("performing measurement")
-        coords = {"uts": (["uts"], [datetime.now().timestamp()])}
+        coords = {"uts": (["uts"], [datetime.now(UTC).timestamp()])}
         temperature = self.temperature
         data_vars = {
             "temperature": (["uts"], [temperature.m], {"units": str(temperature.u)}),
@@ -210,21 +241,30 @@ class Device(ModelDevice):
         logger.debug("measurement done")
 
     @staticmethod
-    def _build_sweep(sweep_params: list[Sweep], power_level: float, bandwidth: float):
+    def _build_sweep(
+        sweep: Sweep, power_level: float, bandwidth: float, vna: ModuleType
+    ):
         logger.debug("building a sweep")
         mc = vna.MeasurementConfiguration()
-        for sweep in sweep_params:
-            if sweep.step is not None:
-                points = np.arange(sweep.start, sweep.stop + 1, sweep.step)
-            elif sweep.points is not None:
-                points = np.linspace(sweep.start, sweep.stop, num=sweep.points)
-                points = np.around(points)
-            logger.debug("adding a sweep section with %d points", len(points))
-            for p in points:
-                pt = vna.MeasurementPoint()
-                pt.frequencyHz = p
-                pt.powerLeveldBm = power_level
-                pt.bandwidthHz = bandwidth
-                mc.addPoint(pt)
+        if sweep.step is not None:
+            points = np.arange(
+                sweep.start.to("Hz").m,
+                sweep.stop.to("Hz").m + 1,
+                sweep.step.to("Hz").m,
+            )
+        elif sweep.points is not None:
+            points = np.linspace(
+                sweep.start.to("Hz").m,
+                sweep.stop.to("Hz").m,
+                num=sweep.points,
+            )
+            points = np.around(points)
+        logger.debug("adding a sweep section with %d points", len(points))
+        for p in points:
+            pt = vna.MeasurementPoint()
+            pt.frequencyHz = p
+            pt.powerLeveldBm = power_level
+            pt.bandwidthHz = bandwidth
+            mc.addPoint(pt)
         logger.debug("sweep with %d total points built", len(mc.getPoints()))
         return mc

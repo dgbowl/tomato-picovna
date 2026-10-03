@@ -1,33 +1,30 @@
-from tomato_picovna import DriverInterface, vna
-from tomato.driverinterface_2_1 import Task
-import time
 import logging
+import time
+
+from tomato.driverinterface_2_1 import Task
+
+from tomato_picovna import DriverInterface
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    print(f"{vna=}")
     settings = {
-        "dllpath": r"C:\Users\Kraus\Documents\Instruments\COCoS\picovna5_sdk_v_5_2_5\python",
-        "calibration": r"C:\Users\Kraus\Documents\Instruments\COCoS\calibrations\2025-05-22_2.5-7.5GHz_10kHz_-3dBm.calx",
+        "dllpath": r"/opt/picovna/lib/",
+        "calibration": "/home/kraus/Documents/Instruments/COCoS/calibrations/2026-08-27_5500MHz-7500MHz_10kHz_3dBm_03.calx",
     }
-    kwargs = dict(address="A0171", channel="11328")
+    kwargs = dict(address="A0165", channel="10708")
     interface = DriverInterface(settings=settings)
     print(f"{interface=}")
     print(f"{interface.cmp_register(**kwargs)=}")
-    component = interface.devmap[("A0171", "11328")]
+    component = interface.devmap[("A0165", "10708")]
     print(f"{component=}")
-    print(f"{vna=}")
     print(f"{component.calibration=}")
 
-    sweep_params = [
-        # dict(start=2_000_000_000, stop=2_500_000_000, points=101),
-        dict(start=2_700_000_000, stop=6_700_000_000, points=10001),
-    ]
+    sweep_params = dict(start=5_500_000_000, stop=7_500_000_000, points=10000)
 
     task = Task(
         component_role="bla",
-        max_duration=20,
-        sampling_interval=10,
+        max_duration=4,
+        sampling_interval=2,
         technique_name="linear_sweep",
         task_params={
             "bandwidth": 10_000,
@@ -36,17 +33,19 @@ if __name__ == "__main__":
             "sweep_nports": 1,
         },
     )
+    print(f"{task=}")
 
     print(f"{interface.task_start(task=task, **kwargs)=}")
+    time.sleep(5)
     while True:
         ret = interface.cmp_status(**kwargs)
         print(f"{ret=}")
         if ret.data["running"] is False:
             break
-        time.sleep(30)
+        time.sleep(1)
     ret = interface.task_data(**kwargs)
     print(f"{ret=}")
-    # ret.data.to_netcdf("QLCZES_2.nc", engine="h5netcdf")
+    ret.data.to_netcdf("4.nc", engine="h5netcdf")
 
 if False:
     task = Task(
