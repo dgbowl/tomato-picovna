@@ -1,7 +1,7 @@
 import logging
 import time
 
-from tomato.driverinterface_2_1 import Task
+from tomato.driverinterface_3_0 import Task
 from tomato.models import Component
 
 from tomato_picovna import DriverInterface
@@ -43,13 +43,17 @@ if __name__ == "__main__":
     print(f"{task=}")
 
     print(f"{interface.task_start(task=task, name=cmp.name)=}")
-    time.sleep(5)
+    time.sleep(0.1)
     while True:
         ret = interface.cmp_status(name=cmp.name)
         print(f"{ret=}")
         if ret.data.state != "task":
             break
-        time.sleep(1)
+        time.sleep(0.5)
     ret = interface.task_data(name=cmp.name)
     print(f"{ret=}")
-    ret.data.to_netcdf("4.nc", engine="h5netcdf")
+    print(f"{ret.data['uts']=}")
+    assert ret.data["uts"].shape == (2,)
+    print(f"{ret.data['Re(S11)']=}")
+    assert ret.data["Re(S11)"].shape == (2, 1001)
+    # ret.data.to_netcdf("4.nc", engine="h5netcdf")

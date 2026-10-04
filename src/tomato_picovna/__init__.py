@@ -1,7 +1,6 @@
 import importlib
 import logging
 import sys
-import time
 from datetime import UTC, datetime
 from types import ModuleType
 from typing import Annotated, Any, Literal
@@ -219,12 +218,14 @@ class Component(ModelComponent):
             logger.debug("running with a demo instrument, no temperature available")
             data_vars = {}
 
-        # ret = self.instrument.performMeasurement(self.task_sweep_config)
-        am = self.instrument.startMeasurement(self.task_sweep_config)
-        bw = self.bandwidth.to("Hz").m
-        npoints = self.task_sweep_config.numPoints()
-        time.sleep(estimate_sweep_time(bw, npoints))
-        ret = am.getAllPoints()
+        ret = self.instrument.performMeasurement(self.task_sweep_config)
+
+        # Below is measurement in asynchronous mode.
+        # am = self.instrument.startMeasurement(self.task_sweep_config)
+        # bw = self.bandwidth.to("Hz").m
+        # npoints = self.task_sweep_config.numPoints()
+        # time.sleep(estimate_sweep_time(bw, npoints))
+        # ret = am.getAllPoints()
 
         freq = []
         real = {k: [] for k in self.ports}
@@ -245,7 +246,8 @@ class Component(ModelComponent):
         logger.debug("measurement done")
 
     def quit(self, **kwargs):
-        # According to PicoVNA 5 Programming guide, to
+        # According to PicoVNA 5 Programming guide, to release the device
+        # the instrument object should be deleted. There's no .close method.
         if self.instrument is not None:
             logger.debug("deleting device object")
             instrument = self.instrument
