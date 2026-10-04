@@ -17,7 +17,7 @@ if __name__ == "__main__":
     print(f"{cmp=}")
     settings = {
         "dllpath": r"/opt/picovna/lib/",
-        # "calibration": "/home/kraus/Documents/Instruments/COCoS/calibrations/2026-08-27_5500MHz-7500MHz_10kHz_3dBm_03.calx",
+        "calibration": "/home/kraus/Documents/Instruments/COCoS/calibrations/2026-08-27_5500MHz-7500MHz_10kHz_3dBm_03.calx",
     }
     interface = DriverInterface(settings=settings)
     print(f"{interface=}")
@@ -26,7 +26,7 @@ if __name__ == "__main__":
     print(f"{component=}")
     print(f"{component.driver.settings=}")
 
-    sweep_params = {"start": 5_500_000_000, "stop": 7_500_000_000, "points": 1001}
+    sweep_params = {"start": 5_500_000_000, "stop": 7_500_000_000, "points": 10001}
 
     task = Task(
         component_role="bla",
@@ -55,5 +55,5 @@ if __name__ == "__main__":
     print(f"{ret.data['uts']=}")
     assert ret.data["uts"].shape == (2,)
     print(f"{ret.data['Re(S11)']=}")
-    assert ret.data["Re(S11)"].shape == (2, 1001)
+    assert ret.data["Re(S11)"].shape == (2, sweep_params["points"])
     # ret.data.to_netcdf("4.nc", engine="h5netcdf")

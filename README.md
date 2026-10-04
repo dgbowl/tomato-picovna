@@ -7,6 +7,7 @@ This driver is a wrapper around the [`vna`](https://pypi.org/project/vna/) libra
 ## Installation
 1. Download and install the PicoVNA 5 software. Tested with the following versions:
   - `5.3.3`
+  - `5.3.5`
 2. Download the `vna.py` file and save it in the `lib` folder within the PicoVNA 5 installation directory:
   - On Linux, this is `/opt/picovna/lib`.
 3. Pass the location of the `lib` folder within the installation directory (e.g. `/opt/picovna/lib`) as `settings['dllpath']` to the driver.
