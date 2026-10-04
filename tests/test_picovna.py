@@ -1,33 +1,37 @@
-from tomato_picovna import DriverInterface, vna
-from tomato.driverinterface_2_1 import Task
-import time
 import logging
+import time
+
+from tomato.driverinterface_3_0 import Task
+from tomato.models import Component
+
+from tomato_picovna import DriverInterface
+
+ADDR = None
+CHAN = "10708"
+# CHAN = "DEMO000"
+
+cmp = Component(driver="picovna", address=ADDR, channel=CHAN, device="vna")
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG)
-    print(f"{vna=}")
+    print(f"{cmp=}")
     settings = {
-        "dllpath": r"C:\Users\Kraus\Documents\Instruments\COCoS\picovna5_sdk_v_5_2_5\python",
-        "calibration": r"C:\Users\Kraus\Documents\Instruments\COCoS\calibrations\2025-05-22_2.5-7.5GHz_10kHz_-3dBm.calx",
+        "dllpath": r"/opt/picovna/lib/",
+        "calibration": "/home/kraus/Documents/Instruments/COCoS/calibrations/2026-08-27_5500MHz-7500MHz_10kHz_3dBm_03.calx",
     }
-    kwargs = dict(address="A0171", channel="11328")
     interface = DriverInterface(settings=settings)
     print(f"{interface=}")
-    print(f"{interface.cmp_register(**kwargs)=}")
-    component = interface.devmap[("A0171", "11328")]
+    print(f"{interface.cmp_register(**cmp.model_dump(exclude={'driver'}))=}")
+    component = interface.devmap[cmp.name]
     print(f"{component=}")
-    print(f"{vna=}")
-    print(f"{component.calibration=}")
+    print(f"{component.driver.settings=}")
 
-    sweep_params = [
-        # dict(start=2_000_000_000, stop=2_500_000_000, points=101),
-        dict(start=2_700_000_000, stop=6_700_000_000, points=10001),
-    ]
+    sweep_params = {"start": 5_500_000_000, "stop": 7_500_000_000, "points": 10001}
 
     task = Task(
         component_role="bla",
-        max_duration=20,
-        sampling_interval=10,
+        max_duration=4,
+        sampling_interval=2,
         technique_name="linear_sweep",
         task_params={
             "bandwidth": 10_000,
@@ -36,41 +40,20 @@ if __name__ == "__main__":
             "sweep_nports": 1,
         },
     )
+    print(f"{task=}")
 
-    print(f"{interface.task_start(task=task, **kwargs)=}")
+    print(f"{interface.task_start(task=task, name=cmp.name)=}")
+    time.sleep(0.1)
     while True:
-        ret = interface.cmp_status(**kwargs)
+        ret = interface.cmp_status(name=cmp.name)
         print(f"{ret=}")
-        if ret.data["running"] is False:
+        if ret.data.state != "task":
             break
-        time.sleep(30)
-    ret = interface.task_data(**kwargs)
+        time.sleep(0.5)
+    ret = interface.task_data(name=cmp.name)
     print(f"{ret=}")
-    # ret.data.to_netcdf("QLCZES_2.nc", engine="h5netcdf")
-
-if False:
-    task = Task(
-        component_role="bla",
-        max_duration=10,
-        sampling_interval=5,
-        technique_name="linear_sweep",
-        task_params={
-            "bandwidth": 10_000,
-            "power_level": -3,
-            "sweep_params": [
-                dict(start=2_500_000_000, stop=3_000_000_000, points=2500),
-                dict(start=4_500_000_000, stop=5_000_000_000, points=2500),
-                dict(start=5_800_000_000, stop=6_800_000_000, points=5001),
-            ],
-            "sweep_nports": 1,
-        },
-    )
-    print(f"{interface.task_start(task=task, **kwargs)=}")
-    while True:
-        time.sleep(0.1)
-        ret = interface.cmp_status(**kwargs)
-        print(f"{ret=}")
-        if ret.data["running"] is False:
-            break
-    ret = interface.task_data(**kwargs)
-    ret.data.to_netcdf("split_calx.nc", engine="h5netcdf")
+    print(f"{ret.data['uts']=}")
+    assert ret.data["uts"].shape == (2,)
+    print(f"{ret.data['Re(S11)']=}")
+    assert ret.data["Re(S11)"].shape == (2, sweep_params["points"])
+    # ret.data.to_netcdf("4.nc", engine="h5netcdf")

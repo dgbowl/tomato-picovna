@@ -11,11 +11,11 @@ authors = [
 
 description = "This package is a part of tomato. It has been made for the automation of PicoVNA network analysers."
 readme = "README.md"
-requires-python = ">= 3.10, < 3.12"
+requires-python = ">= 3.11"
 dependencies = [
-    "vna >= 0.0.5",
     "psutil >= 5.9",
-    "tomato >= 2.1rc3",
+    "tomato >= 3.0rc5.post1",
+    "pydantic-pint ~= 0.5.0",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
