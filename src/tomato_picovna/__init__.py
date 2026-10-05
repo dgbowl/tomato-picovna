@@ -59,7 +59,7 @@ def estimate_sweep_time(bw: int, npoints: int):
     return c0 + npoints * (c1 / bw + c2)
 
 
-class Sweep(BaseModel):
+class Sweep(BaseModel, extra="forbid"):
     start: APQHZ
     stop: APQHZ
     points: Literal[*POINTS_SET] | None = None  # ty: ignore
